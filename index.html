@@ -1,11 +1,222 @@
+<!--@2020 Rosaliew-->
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html>
   <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
     <meta charset="utf-8">
-    <title>Google Maps Api</title>
+    <title>Directions Service (Complex)</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+    <style>
+      /* Always set the map height explicitly to define the size of the div
+       * element that contains the map. */
+      #map {
+        height: 100%;
+      }
+      /* Optional: Makes the sample page fill the window. */
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #floating-panel {
+        position: absolute;
+        top: 10px;
+        left: 25%;
+        z-index: 5;
+        background-color: #fff;
+        padding: 5px;
+        border: 1px solid #999;
+        text-align: center;
+        font-family: 'Roboto','sans-serif';
+        line-height: 30px;
+        padding-left: 10px;
+      }
+      #warnings-panel {
+        width: 100%;
+        height:10%;
+        text-align: center;
+      }
+    </style>
   </head>
   <body>
-    <h1>Google Maps Api</h1>
-    <script src="index.js" charset="utf-8"></script>
+    <div id="floating-panel"><input type="file" onchange="handleFiles(this.files)" accept=".csv"></div>
+    <div id="map"></div>
+    &nbsp;
+    <div id="warnings-panel"></div>
+    <script>
+      var timeForDepature = new Date('April 13, 2020 02:00:00');
+      var run = 0
+      var travelSeconds = 0;
+      //SET ARRIVAL TIME HERE
+      var goalArrivalTime = new Date('April 13, 2020 08:20:00');
+      var calls = 0;
+      var failed = []
+
+      var adressesList = []
+      function handleFiles(files) {
+        getAsText(files[0])
+      }
+
+      function getAsText(fileToRead) {
+        const reader = new FileReader()
+        reader.readAsText(fileToRead)
+        reader.onload = (event) => processData(event.target.result)
+      }
+
+      function processData(allText) {
+        var allTextLines = allText.split(/\r\n|\n/);
+        for (var i = 1; i < allTextLines.length; i++) {
+          adressesList.push(allTextLines[i]);
+          console.log("1")
+        }
+        console.log("ADRESSES:", adressesList)
+        initMap()
+      }
+
+
+      var times = []
+
+
+      async function initMap() {
+        var markerArray = [];
+
+        // Instantiate a directions service.
+        var directionsService = new google.maps.DirectionsService;
+
+        // Create a map and center it on Manhattan.
+        var map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 13,
+          center: {lat: 40.758896, lng: -73.985130}
+        });
+
+        // Create a renderer for directions and bind it to the map.
+        var directionsRenderer = new google.maps.DirectionsRenderer({map: map});
+
+        // Instantiate an info window to hold step text.
+        var stepDisplay = new google.maps.InfoWindow;
+
+        // Display the route between the initial start and end selections.
+        for (var i = 0; i < adressesList.length; i++) {
+          if (adressesList[i] == "stop") {
+            //DOWNLOADING THE RESULTS AS AN CSV file
+            const csv = times.map(row => row.map(item => (typeof item === 'string' && item.indexOf(',') >= 0) ? `"${item}"`: String(item)).join(',')).join('\n');
+
+            // Format the CSV string
+            const data = encodeURI('data:text/csv;charset=utf-8,' + csv);
+
+            // Create a virtual Anchor tag
+            const link = document.createElement('a');
+            link.setAttribute('href', data);
+            link.setAttribute('download', 'Results.csv');
+
+            // Append the Anchor tag in the actual web page or application
+            document.body.appendChild(link);
+
+            // Trigger the click event of the Anchor link
+            link.click();
+
+            // Remove the Anchor link form the web page or application
+            document.body.removeChild(link);
+            times = []
+
+          }
+          else {
+            calculateAndDisplayRoute(directionsRenderer, directionsService, markerArray, stepDisplay, map, timeForDepature, i, adressesList, 0);
+          }
+          //Wait 10 sec to eliminate the risk of getting an OVER QUERY LIMIT error
+          await new Promise(r => setTimeout(r, 10000));
+        }
+      }
+
+
+      async function calculateAndDisplayRoute(directionsRenderer, directionsService,
+          markerArray, stepDisplay, map, timeForDepature, i, adressesList, run) {
+        // First, remove any existing markers from the map.
+        for (var j = 0; j < markerArray.length; j++) {
+          markerArray[j].setMap(null);
+        }
+
+        directionsService.route({
+          origin: adressesList[i], //the address which it is currently calculating for
+          destination: "20 W 34th St, New York, NY 10001", //destination
+          travelMode: 'DRIVING',
+          drivingOptions: {
+            departureTime: timeForDepature, //departure time
+            trafficModel: 'bestguess' //optimistic, bestguess, pessimistic traffic model
+          },
+        }, async function(response, status) {
+          // Route the directions and pass the response to a function to create
+          // markers for each step.
+          if (status === 'OK') {
+            await new Promise(r => setTimeout(r, 200));
+            calls = calls + 1
+            var travelSeconds = response.routes[0].legs[0].duration_in_traffic.value;
+            newTimeForDeparture = new Date(goalArrivalTime - (travelSeconds*1000))
+
+            if (run == 0) {
+              lastTravelSeconds = travelSeconds
+              run = run + 1
+              calculateAndDisplayRoute(directionsRenderer, directionsService, markerArray, stepDisplay, map, newTimeForDeparture, i, adressesList, run)
+            }
+            else if (run > 0) {
+              var differenceInTravelTime = Math.abs(travelSeconds - lastTravelSeconds)
+              lastTravelSeconds = travelSeconds
+              if (run  > 10) {
+                console.log("STOP SOMETHING WENT WRONG WITH CALCULATING")
+                console.log("Add to blacklist")
+                failed.push(adressesList[i])
+                console.log(failed)
+              }
+              else if (differenceInTravelTime > 120){
+                run = run + 1;
+                calculateAndDisplayRoute(directionsRenderer, directionsService, markerArray, stepDisplay, map, newTimeForDeparture, i, adressesList, run)
+              }
+              else if (differenceInTravelTime < 120){
+                //found the travel time
+                var textTime = response.routes[0].legs[0].duration_in_traffic.text; //example = "22 mins"
+                var minNumber = textTime.match(/\d/g);
+                minNumber = minNumber.join("");
+                times.push([adressesList[i], minNumber]); //Add the address and the minutes to the times Array
+                console.log(times)
+              }
+            }
+
+            document.getElementById('warnings-panel').innerHTML =
+                '<b>' + response.routes[0].warnings + '</b>';
+            directionsRenderer.setDirections(response);
+            //showSteps(response, markerArray, stepDisplay, map);
+          } else {
+            window.alert('Directions request failed due to ' + status);
+          }
+        });
+      }
+
+      function showSteps(directionResult, markerArray, stepDisplay, map) {
+        // For each step, place a marker, and add the text to the marker's infowindow.
+        // Also attach the marker to an array so we can keep track of it and remove it
+        // when calculating new routes.
+        var myRoute = directionResult.routes[0].legs[0];
+        for (var i = 0; i < myRoute.steps.length; i++) {
+          var marker = markerArray[i] = markerArray[i] || new google.maps.Marker;
+          marker.setMap(map);
+          marker.setPosition(myRoute.steps[i].start_location);
+          attachInstructionText(
+              stepDisplay, marker, myRoute.steps[i].instructions, map);
+        }
+      }
+
+      function attachInstructionText(stepDisplay, marker, text, map) {
+        google.maps.event.addListener(marker, 'click', function() {
+          // Open an info window when the marker is clicked on, containing the text
+          // of the step.
+          stepDisplay.setContent(text);
+          stepDisplay.open(map, marker);
+        });
+      }
+
+    </script>
+    <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=INSERTKEY&callback=initMap">
+    </script>
   </body>
 </html>
