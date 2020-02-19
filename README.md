@@ -13,4 +13,4 @@ Use cases:
   - Calculate the travel time in the morning/afternoon for each student in a school
   - Calculate the travel time in the morning/evening for each person working at a specific company
   
-Note: Before using you HAVE to put in an API key at the bottom of the index.html file (line 219)
+Note: Before using you have to put in an API key at the bottom of the index.html file (line 219)
